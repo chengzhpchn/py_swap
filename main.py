@@ -1,4 +1,5 @@
 import config
+import rpc
 
 def swap_in_erc20(mvs_rpc, eth_rpc, tx_hash):
     '''
@@ -6,7 +7,7 @@ def swap_in_erc20(mvs_rpc, eth_rpc, tx_hash):
     '''
     eth_rpc.wait_confirm(tx_hash)
 
-    contract_name, from_addr, amount = eth_rpc.get_transaction(tx_hash)
+    contract_name, from_addr, (amount, decimal) = eth_rpc.get_transaction(tx_hash)
     to_addr = eth_rpc.get_bind_addr(from_addr)
     if not to_addr:
         print('Invalid bind for[%s, %s]' % (tx_hash, from_addr))
@@ -15,7 +16,7 @@ def swap_in_erc20(mvs_rpc, eth_rpc, tx_hash):
     asset_name = config.ERC20_PREFIX + contract_name
     balance = mvs_rpc.get_asset_balance(asset_name)
     if balance == None: # not issued
-        issue_tx_hash = mvs_rpc.issue_asset(asset_name, config.MAX_SUPPLY)
+        issue_tx_hash = mvs_rpc.issue_asset(asset_name, config.MAX_SUPPLY, decimal)
         mvs_rpc.wait_confirm(issue_tx_hash)
         balance = config.MAX_SUPPLY
 
@@ -32,9 +33,12 @@ def swap_out_erc20(mvs_rpc, eth_rpc, tx_hash):
     '''
     mvs "ERC20." prefixed asset -> eth ERC20 token
     '''
-    mvs_rpc.wait_confirm(tx_hash)
+    em = mvs_rpc.wait_confirm(tx_hash)
+    if em:
+        print('Failed to wait_confirm [%s]' % em)
+        return
 
-    asset_name, from_addr, to_addr, amount = mvs_rpc.get_transaction(tx_hash)
+    asset_name, to_addr, amount = mvs_rpc.get_transaction(tx_hash)
     if not asset_name.startswith(config.ERC20_PREFIX):
         print('Invalid asset_name for[%s]' % tx_hash)
         return
@@ -52,3 +56,9 @@ def swap_in_coin(mvs_rpc, eth_rpc, tx_hash):
 
 def swap_out_coin(mvs_rpc, eth_rpc, tx_hash):
     pass
+
+if __name__ == '__main__':
+    mvs_rpc = rpc.MVSRPC('test', '123456')
+    rpc.ETHRPC.load_contracts()
+    eth_rpc = rpc.ETHRPC()
+    swap_in_erc20(mvs_rpc, eth_rpc, '0x9120f96b1221360d19fc298d888387dece5058d8376c62f45c60850651ca6b5a')
