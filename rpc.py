@@ -152,14 +152,14 @@ class MVSRPC(RPCBase):
         assert (em == None)
         if not result:
             return None
-        decimal_number = result[0]['decimal_number']
+        #decimal_number = result[0]['decimal_number']
         em, result = mvs_rpc.getaddressasset(cls.SCAN_ADDRESS, symbol=asset_name)
         assert (em == None)
         quantity = 0
         for i in result:
-            if result["status"] == 'unspent':
-                quantity += result["quantity"]
-        return quantity, decimal_number
+            if i["status"] == 'unspent':
+                quantity += i["quantity"]
+        return quantity
 
     def issue_asset(self, asset_name, max_supply, decimal):
         em, result = mvs_rpc.createasset(self.account, self.password, asset_name, config.SCAN_DID, max_supply, rate=-1, decimalnumber=decimal, description="Crosschain asset of ERC20 token %s" % asset_name[len(config.ERC20_PREFIX):])
@@ -196,9 +196,11 @@ class ETHRPC(RPCBase):
                                             ContractFactoryClass=ConciseContract)
 
         for contract_address in config.CONTRACT_ERC20_LST:
-            cls.erc20_contracts[contract_address] = web3.eth.contract(address=contract_address,
+            contract = web3.eth.contract(address=contract_address,
                                             abi=config.CONTRACT_ERC20_LST[contract_address]['abi'],
                                             ContractFactoryClass=ConciseContract)
+            cls.erc20_contracts[contract_address] = contract
+            cls.erc20_contracts[contract.symbol()] = contract
 
     @classmethod
     def get_map_addr(cls, eth_address):
@@ -235,7 +237,10 @@ class ETHRPC(RPCBase):
 
     @classmethod
     def Satoshi2Wei(cls, value, decimals):
-        pass
+        if decimals > 8:
+            delta = decimals - 8
+            return int(value * (10 ** delta)), 8
+        return value, decimals
 
     @classmethod
     def get_transaction(cls, tx_hash):
@@ -255,4 +260,23 @@ class ETHRPC(RPCBase):
         if paras['_to'].lower() != config.ETHEREUM_SCAN_ADDRESS.lower():
             raise Exception('Unexpect reveive address for %s' % tx_hash)
 
-        return contract.symbol(), tx['from'], cls.Wei2Satoshi(paras['_value'], contract.decimals())
+        amount, decimals = cls.Wei2Satoshi(paras['_value'], contract.decimals())
+        totalSupply, _ = cls.Wei2Satoshi(contract.totalSupply(), contract.decimals())
+        if totalSupply > 0xFFFFFFFFFFFFFFFF:
+            totalSupply = 0xFFFFFFFFFFFFFFFF
+
+        return contract.symbol(), tx['from'], (amount, totalSupply, decimals)
+
+    @classmethod
+    def get_asset_balance(cls, contract_name):
+        contract = cls.erc20_contracts.get(contract_name, None)
+        if contract == None:
+            raise Exception('Not supported contract name for swap:%s' % contract_name)
+        return cls.Wei2Satoshi( contract.balanceOf(config.ETHEREUM_SCAN_ADDRESS), contract.decimals())[0]
+
+    def send_asset(self, contract_name, to_addr, amount, memo=None):
+        contract = self.erc20_contracts.get(contract_name, None)
+        if contract == None:
+            raise Exception('Not supported contract name for swap:%s' % contract_name)
+
+        return contract.transfer(to_addr, self.Satoshi2Wei(amount, contract.decimals())[0])

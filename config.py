@@ -1,5 +1,4 @@
 ERC20_PREFIX = 'ERC20.'
-MAX_SUPPLY = 10 ** 20
 SCAN_DID = "droplet"
 COMMUNITY_DID = "developer-community"
 

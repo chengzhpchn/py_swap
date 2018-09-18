@@ -61,3 +61,11 @@ class testETH(TestCase):
     def test_2_get_transaction(self):
         ret = rpc.ETHRPC.get_transaction('0x9120f96b1221360d19fc298d888387dece5058d8376c62f45c60850651ca6b5a')
         print(ret)
+
+    def test_3_get_asset_balance(self):
+        ret = rpc.ETHRPC.get_asset_balance('EDU')
+        print(ret)
+
+    def test_4_send_asset(self):
+        ret = rpc.ETHRPC().send_asset('EDU', '0xe10B56Ce1Ef3060b278A2Bd6A92780a01A4Cc7C9', 1234, None)
+        print(ret)
