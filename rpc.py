@@ -33,7 +33,7 @@ class RPCBase:
 
 class MVSRPC(RPCBase):
     SCAN_ADDRESS = [i['address'] for i in mvs_rpc.getdid(config.SCAN_DID)[1] if i['status'] == 'current'][0]
-    COMMUNITY_ADDRESS = [i['address'] for i in mvs_rpc.getdid(config.COMMUNITY_DID)[1] if i['status'] == 'current'][0]
+    COMMUNITY_ADDRESS = 'MAwLwVGwJyFsTBfNj2j5nCUrQXGVRvHzPh'#[i['address'] for i in mvs_rpc.getdid(config.COMMUNITY_DID)[1] if i['status'] == 'current'][0]
     def __init__(self, account, password, url=None):
         self.url = url
         self.account = account
@@ -45,7 +45,7 @@ class MVSRPC(RPCBase):
         for i in range(0, timeout, cls.SLEEP_PERIOD):
             em, tx = mvs_rpc.gettx(tx_hash)
             if em != None:
-                return 'failed to gettx(%s):%s' % (tx_hash, em)
+                raise Exception('failed to gettx(%s):%s' % (tx_hash, em) )
 
             tx_height = tx.get('height', 0)
             if tx_height:
@@ -55,12 +55,12 @@ class MVSRPC(RPCBase):
             time.sleep(cls.SLEEP_PERIOD)
         else:
             #timeout
-            return "wait for tx[%s] mined timeout" % tx_hash
+            raise Exception("wait for tx[%s] mined timeout" % tx_hash)
 
         for i in range(timecounter, timeout, cls.SLEEP_PERIOD):
             em, latest_height = mvs_rpc.getheight()
             if em != None:
-                return 'failed to getheight(%s):%s' % (tx_hash, em)
+                raise Exception('failed to getheight(%s):%s' % (tx_hash, em))
 
             if latest_height - tx_height > cls.TX_CONFIRM_HEIGHT:
                 break
@@ -68,12 +68,12 @@ class MVSRPC(RPCBase):
             time.sleep(cls.SLEEP_PERIOD)
         else:
             # timeout
-            return "wait for tx[%s] block depth timeout" % tx_hash
+            raise Exception( "wait for tx[%s] block depth timeout" % tx_hash )
 
         #check the tx not be forked
         em, tx = mvs_rpc.gettx(tx_hash)
         if em != None:
-            return 'failed to gettx(%s):%s, forked?' % (tx_hash, em)
+            raise Exception( 'failed to gettx(%s):%s, forked?' % (tx_hash, em))
 
         assert( tx['height'] )
 
@@ -126,13 +126,13 @@ class MVSRPC(RPCBase):
         swap_fee = {}  # asset_name -> amount
         to_address = []
         for address, asset_name, amount in tx_to:
-            if address == cls.SCAN_ADDRESS:
-                if asset_name:
+            if asset_name:
+                if address == cls.SCAN_ADDRESS:
                     swap[asset_name] = swap.get(asset_name, 0) + amount
-                else:
-                    to_address.append(amount)
-            elif address == cls.COMMUNITY_ADDRESS:
-                swap_fee[asset_name] = swap_fee.get(asset_name, 0) + amount
+                elif address == cls.COMMUNITY_ADDRESS:
+                    swap_fee[asset_name] = swap_fee.get(asset_name, 0) + amount
+            else:
+                to_address.append(amount)
 
         if len(swap) != 1:
             raise Exception('Unexpect swap assert count for[%s]' % tx_hash)
@@ -197,10 +197,9 @@ class ETHRPC(RPCBase):
 
         for contract_address in config.CONTRACT_ERC20_LST:
             contract = web3.eth.contract(address=contract_address,
-                                            abi=config.CONTRACT_ERC20_LST[contract_address]['abi'],
-                                            ContractFactoryClass=ConciseContract)
+                                            abi=config.CONTRACT_ERC20_LST[contract_address]['abi'])
             cls.erc20_contracts[contract_address] = contract
-            cls.erc20_contracts[contract.symbol()] = contract
+            cls.erc20_contracts[contract.functions.symbol().call()] = contract
 
     @classmethod
     def get_map_addr(cls, eth_address):
@@ -223,7 +222,7 @@ class ETHRPC(RPCBase):
             time.sleep(cls.SLEEP_PERIOD)
         else:
             # timeout
-            return "wait for tx[%s] block depth timeout" % tx_hash
+            raise Exception("wait for tx[%s] block depth timeout" % tx_hash)
         #avoid the chain fored during the previous for circle
         tx_receipt = web3.eth.waitForTransactionReceipt(tx_hash)
         assert (tx_receipt['blockNumber'])
@@ -246,12 +245,11 @@ class ETHRPC(RPCBase):
     def get_transaction(cls, tx_hash):
         tx = web3.eth.getTransaction(tx_hash)
 
-        contract = cls.erc20_contracts.get(tx.to, None)
-        if contract == None:
+        contract_instance = cls.erc20_contracts.get(tx.to, None)
+        if contract_instance == None:
             raise Exception('Not supported contract address for swap:%s' % tx.to)
 
-        contract_instance = web3.eth.contract(address=tx.to,
-                                        abi=config.CONTRACT_ERC20_LST[tx.to]['abi'])
+        contract = ConciseContract(contract_instance)
         func, paras = contract_instance.decode_function_input(tx.input)
 
         if str(func) != '<Function transfer(address,uint256)>':
@@ -272,11 +270,27 @@ class ETHRPC(RPCBase):
         contract = cls.erc20_contracts.get(contract_name, None)
         if contract == None:
             raise Exception('Not supported contract name for swap:%s' % contract_name)
-        return cls.Wei2Satoshi( contract.balanceOf(config.ETHEREUM_SCAN_ADDRESS), contract.decimals())[0]
+        concise = ConciseContract(contract)
+        return cls.Wei2Satoshi( concise.balanceOf(config.ETHEREUM_SCAN_ADDRESS), concise.decimals())[0]
 
     def send_asset(self, contract_name, to_addr, amount, memo=None):
-        contract = self.erc20_contracts.get(contract_name, None)
-        if contract == None:
+        contract_instance = self.erc20_contracts.get(contract_name, None)
+        if contract_instance == None:
             raise Exception('Not supported contract name for swap:%s' % contract_name)
 
-        return contract.transfer(to_addr, self.Satoshi2Wei(amount, contract.decimals())[0])
+        if not web3.isChecksumAddress(to_addr):
+            to_addr = web3.toChecksumAddress(to_addr)
+        contract = ConciseContract(contract_instance)
+
+        if not web3.personal.unlockAccount(config.ETHEREUM_SCAN_ADDRESS, config.ETHEREUM_SCAN_PASSWD):
+            raise Exception('Failed to unlcok account:' % config.ETHEREUM_SCAN_ADDRESS)
+
+        amountInWei = self.Satoshi2Wei(amount, contract.decimals())[0]
+
+        gas_price = web3.eth.gasPrice
+        transact = contract_instance.functions.transferFrom(config.ETHEREUM_SCAN_ADDRESS, to_addr, amountInWei)
+        gas = transact.estimateGas()
+        ret = transact.transact(transaction={'from': config.ETHEREUM_SCAN_ADDRESS, 'gas': gas, 'gasPrice': gas_price})
+        if not ret:
+            raise Exception('Failed to send_asset:[%s, %s, %s]' % (contract_name, to_addr, amount))
+        return ret.hex()

@@ -33,21 +33,20 @@ def swap_out_erc20(mvs_rpc, eth_rpc, tx_hash):
     '''
     mvs "ERC20." prefixed asset -> eth ERC20 token
     '''
-    em = mvs_rpc.wait_confirm(tx_hash)
-    if em:
-        print('Failed to wait_confirm [%s]' % em)
-        return
+    mvs_rpc.wait_confirm(tx_hash)
 
-    asset_name, to_addr, amount = mvs_rpc.get_transaction(tx_hash)
+    asset_name, to_addr, amount, swap_fee = mvs_rpc.get_transaction(tx_hash)
     if not asset_name.startswith(config.ERC20_PREFIX):
         print('Invalid asset_name for[%s]' % tx_hash)
         return
+    # swap_fee check ?
     contract_name = asset_name[len(config.ERC20_PREFIX):]
     balance = eth_rpc.get_asset_balance(contract_name)
     if balance < amount:
         print("Not enough balance[%s < %s] for [%s]" % (balance, amount, tx_hash))
         return
-    send_tx_hash = eth_rpc.send_asset(contract_name, to_addr)
+
+    send_tx_hash = eth_rpc.send_asset(contract_name, to_addr, amount)
     eth_rpc.wait_confirm(send_tx_hash)
     return send_tx_hash
 
@@ -61,4 +60,5 @@ if __name__ == '__main__':
     mvs_rpc = rpc.MVSRPC('Alice', 'A123456')
     rpc.ETHRPC.load_contracts()
     eth_rpc = rpc.ETHRPC()
-    swap_in_erc20(mvs_rpc, eth_rpc, '0x9120f96b1221360d19fc298d888387dece5058d8376c62f45c60850651ca6b5a')
+    #swap_in_erc20(mvs_rpc, eth_rpc, '0x9120f96b1221360d19fc298d888387dece5058d8376c62f45c60850651ca6b5a')
+    swap_out_erc20(mvs_rpc, eth_rpc, '1aecc847dbf5be452c26a29c1bd0294d1a6968ee903ef27b1cf2af8583e760f7')
